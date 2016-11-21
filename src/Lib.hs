@@ -1,5 +1,6 @@
 module Lib (
     readExpr
+  , eval
 ) where
 
 import Control.Monad
@@ -215,18 +216,58 @@ parseExpr = try parseAtom
         <|> try parseCharacter
         <|> try parseBool
 
-readExpr :: String -> String
+showVals :: [LispVal] -> String
+showVals = unwords . map show
+
+instance Show LispVal where
+    show (Atom name) = name
+    show (Vector contents) = "(" ++ (showVals $ elems contents) ++ ")"
+    show (List contents) = "(" ++ showVals contents ++ ")"
+    show (DottedList init last) = "(" ++ showVals init ++ " . " ++ show last ++ ")"
+    show (Number n) = show n
+    show (Real x) = show x
+    show (Rational r) = show r
+    show (Complex c) = show c
+    show (String content) = content
+    show (Character c) = charToString c
+    show (Bool True) = "#t"
+    show (Bool False) = "#f"
+
+primitives :: [(String, [LispVal] -> LispVal)]
+primitives = [("+", numberOp (+)),
+              ("-", numberOp (-)),
+              ("*", numberOp (*)),
+              ("/", numberOp div),
+              ("mod", numberOp mod),
+              ("quotient", numberOp quot),
+              ("remainder", numberOp rem)]
+
+getNumberValues :: [LispVal] -> [Integer]
+getNumberValues lispvals = let unpackNumber (Number n) = n in
+                     map unpackNumber lispvals
+
+numberOp :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
+numberOp op args = let vals = getNumberValues args in
+                   Number $ foldl1 op vals
+
+apply :: String -> [LispVal] -> LispVal
+apply func args = maybe (Bool False) ($ args) $ lookup func primitives
+
+eval :: LispVal -> LispVal
+eval atom@(Atom _) = atom
+eval vector@(Vector _) = vector
+eval list@(List (Atom func : args)) = apply func $ map eval args
+eval list@(List _) = list
+eval dotted@(DottedList _ _) = dotted
+eval number@(Number _) = number
+eval real@(Real _) = real
+eval rational@(Rational _) = rational
+eval complex@(Complex _) = complex
+eval string@(String _) = string
+eval char@(Character _) = char
+eval bool@(Bool _) = bool
+
+readExpr :: String -> LispVal
 readExpr input = case parse parseExpr "lisp" input of
-    Left err -> "No match: " ++ show err
-    Right val -> case val of
-        Atom x -> "Found Atom value"
-        Vector x -> "Found Vector value"
-        List x -> "Found List value"
-        DottedList xs x -> "Found DottedList value"
-        Number x -> "Found Number value " ++ show x
-        Real x -> "Found Real value"
-        Rational x -> "Found Rational value"
-        Complex x -> "Found Complex value"
-        String x -> "Found String value"
-        Character x -> "Found Character value"
-        Bool x -> "Found Bool value"
+    Left err -> String $ "No match: " ++ show err
+    Right value -> value

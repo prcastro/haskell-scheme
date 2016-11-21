@@ -3,14 +3,15 @@ module Lib (
 ) where
 
 import Control.Monad
+import Data.Array
 import Data.Complex
 import Data.Ratio
 import Numeric
 
 import Text.ParserCombinators.Parsec hiding (spaces)
 
-
 data LispVal = Atom String
+             | Vector (Array Int LispVal)
              | List [LispVal]
              | DottedList [LispVal] LispVal
              | Number Integer
@@ -31,11 +32,59 @@ parseAtom = do
             let atom = first:rest
             return $ Atom atom
 
+spaces :: Parser ()
+spaces = skipMany1 space
+
+parseVector' :: Parser LispVal
+parseVector' = do
+    vectorValues <- sepBy parseExpr spaces
+    return $ Vector (listArray (0, (length vectorValues - 1)) vectorValues)
+
+parseVector :: Parser LispVal
+parseVector = do
+              string "#("
+              x <- parseVector'
+              char ')'
+              return x
+
+parseDatum :: Parser LispVal
+parseDatum = do
+             char '.'
+             spaces
+             parseExpr
+
+parseListContent :: Parser LispVal
+parseListContent = do
+                   list <- sepEndBy parseExpr spaces
+                   datum <- optionMaybe parseDatum
+                   return $ case datum of
+                       Nothing -> List list
+                       Just datum -> DottedList list datum
+                   
+parseList :: Parser LispVal
+parseList = do
+             char '('
+             list <- parseListContent
+             char ')'
+             return list
+
 parseQuoted :: Parser LispVal
 parseQuoted = do
               char '\''
               x <- parseExpr
               return $ List [Atom "quote", x]
+
+parseQuasiQuoted :: Parser LispVal
+parseQuasiQuoted = do
+              char '`'
+              x <- parseExpr
+              return $ List [Atom "quasiquote", x]
+
+parseUnquoted :: Parser LispVal
+parseUnquoted = do
+              char ','
+              x <- parseExpr
+              return $ List [Atom "unquote", x]
 
 parseDecimal :: Parser LispVal
 parseDecimal = do
@@ -127,14 +176,6 @@ parseString = do
               char '"'
               return $ String x
 
-parseBool :: Parser LispVal
-parseBool = do
-            char '#'
-            val <- oneOf "ft"
-            return $ case val of
-                'f' -> Bool False
-                't' -> Bool True
-
 charToString :: Char -> String
 charToString x = [x]
 
@@ -151,52 +192,41 @@ parseCharacter = do
                      "newline" -> '\n'
                      otherwise -> value !! 0
 
-spaces :: Parser ()
-spaces = skipMany1 space
-
-parseList :: Parser LispVal
-parseList = do
-            x <- sepBy parseExpr spaces
-            (return . List) x
-
-parseDottedList :: Parser LispVal
-parseDottedList = do
-                  head <- endBy parseExpr spaces
-                  char '.'
-                  spaces
-                  tail <- parseExpr
-                  return $ DottedList head tail
-
-parseLists :: Parser LispVal
-parseLists = do
-             char '('
-             list <- try parseList <|> parseDottedList
-             char ')'
-             return list
+parseBool :: Parser LispVal
+parseBool = do
+            char '#'
+            val <- oneOf "ft"
+            return $ case val of
+                'f' -> Bool False
+                't' -> Bool True
 
 parseExpr :: Parser LispVal
 parseExpr = try parseAtom
+        <|> try parseVector
+        <|> try parseList
         <|> try parseQuoted
+        <|> try parseQuasiQuoted
+        <|> try parseUnquoted
         <|> try parseReal
         <|> try parseRational
         <|> try parseComplex
         <|> try parseNumber
         <|> try parseString
-        <|> try parseBool
         <|> try parseCharacter
-        <|> try parseLists
+        <|> try parseBool
 
 readExpr :: String -> String
 readExpr input = case parse parseExpr "lisp" input of
     Left err -> "No match: " ++ show err
     Right val -> case val of
         Atom x -> "Found List value"
+        Vector x -> "Found Vector value"
         List x -> "Found List value"
         DottedList xs x -> "Found DottedList value"
+        Number x -> "Found Number value " ++ show x
         Real x -> "Found Real value"
         Rational x -> "Found Rational value"
         Complex x -> "Found Complex value"
-        Number x -> "Found Number value " ++ show x
         String x -> "Found String value"
-        Bool x -> "Found Bool value"
         Character x -> "Found Character value"
+        Bool x -> "Found Bool value"

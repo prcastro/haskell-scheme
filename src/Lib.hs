@@ -18,8 +18,8 @@ data LispVal = Atom String
              | Rational Rational
              | Complex (Complex Double)
              | String String
-             | Bool Bool
              | Character Char
+             | Bool Bool
 
 symbol :: Parser Char
 symbol = oneOf "!$%&|*+-/:<=>?@^_~"
@@ -30,6 +30,12 @@ parseAtom = do
             rest <- many (letter <|> digit <|> symbol)
             let atom = first:rest
             return $ Atom atom
+
+parseQuoted :: Parser LispVal
+parseQuoted = do
+              char '\''
+              x <- parseExpr
+              return $ List [Atom "quote", x]
 
 parseDecimal :: Parser LispVal
 parseDecimal = do
@@ -145,20 +151,46 @@ parseCharacter = do
                      "newline" -> '\n'
                      otherwise -> value !! 0
 
+spaces :: Parser ()
+spaces = skipMany1 space
+
+parseList :: Parser LispVal
+parseList = do
+            x <- sepBy parseExpr spaces
+            (return . List) x
+
+parseDottedList :: Parser LispVal
+parseDottedList = do
+                  head <- endBy parseExpr spaces
+                  char '.'
+                  spaces
+                  tail <- parseExpr
+                  return $ DottedList head tail
+
+parseLists :: Parser LispVal
+parseLists = do
+             char '('
+             list <- try parseList <|> parseDottedList
+             char ')'
+             return list
+
 parseExpr :: Parser LispVal
 parseExpr = try parseAtom
+        <|> try parseQuoted
         <|> try parseReal
         <|> try parseRational
         <|> try parseComplex
         <|> try parseNumber
         <|> try parseString
         <|> try parseBool
-        <|> parseCharacter
+        <|> try parseCharacter
+        <|> try parseLists
 
 readExpr :: String -> String
 readExpr input = case parse parseExpr "lisp" input of
     Left err -> "No match: " ++ show err
     Right val -> case val of
+        Atom x -> "Found List value"
         List x -> "Found List value"
         DottedList xs x -> "Found DottedList value"
         Real x -> "Found Real value"

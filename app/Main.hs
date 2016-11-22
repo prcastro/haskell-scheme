@@ -1,8 +1,13 @@
 module Main where
 
+import Control.Monad
 import System.Environment
 
 import Lib
 
 main :: IO ()
-main = getArgs >>= print . eval . readExpr . head
+main = do
+    args <- getArgs
+    evaled <- return $ liftM show $ readExpr (head args) >>= eval
+    putStrLn $ valueToPrint evaled
+

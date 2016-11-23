@@ -267,6 +267,19 @@ primitives = [("+", numberOp (+)),
               ("mod", numberOp mod),
               ("quotient", numberOp quot),
               ("remainder", numberOp rem),
+              ("=", numberOpBool (==)),
+              ("<", numberOpBool (<)),
+              (">", numberOpBool (>)),
+              ("/=", numberOpBool (/=)),
+              ("<=", numberOpBool (<=)),
+              (">=", numberOpBool (>=)),
+              ("&&", boolOpBool (&&)),
+              ("||", boolOpBool (||)),
+              ("string=?", stringOpBool (==)),
+              ("string<?", stringOpBool (<)),
+              ("string>?", stringOpBool (>)),
+              ("string<=?", stringOpBool (<=)),
+              ("string>=?", stringOpBool (>=)),
               ("symbol?", isAtom),
               ("vector?", isVector),
               ("list?", isList),
@@ -284,6 +297,14 @@ unpackNumber :: LispVal -> ThrowsError Integer
 unpackNumber (Number n) = return n
 unpackNumber notNumber = throwError $ TypeMismatch "number" notNumber
 
+unpackString :: LispVal -> ThrowsError String
+unpackString (String n) = return n
+unpackString notString = throwError $ TypeMismatch "string" notString
+
+unpackBool :: LispVal -> ThrowsError Bool
+unpackBool (Bool n) = return n
+unpackBool notBool = throwError $ TypeMismatch "bool" notBool
+
 getNumberValues :: [LispVal] -> ThrowsError [Integer]
 getNumberValues lispvals = mapM unpackNumber lispvals
 
@@ -291,6 +312,17 @@ numberOp :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
 numberOp op [] = throwError $ NumArgs 2 []
 numberOp op arg@[x] = throwError $ NumArgs 2 arg
 numberOp op args = getNumberValues args >>= return . Number . foldl1 op
+
+opBool :: (LispVal -> ThrowsError a) -> (a -> a -> Bool) -> [LispVal] -> ThrowsError LispVal
+opBool unpacker op args = if length args /= 2
+                          then throwError $ NumArgs 2 args
+                          else do left <- unpacker $ head args
+                                  right <- unpacker $ last args
+                                  return $ Bool $ left `op` right
+
+numberOpBool = opBool unpackNumber
+stringOpBool = opBool unpackString
+boolOpBool = opBool unpackBool
 
 isAtom :: [LispVal] -> ThrowsError LispVal
 isAtom [Atom _] = return $ Bool True
@@ -369,7 +401,7 @@ apply func args = maybe (throwError $ NotFunction "Unrecognized primitive functi
 eval :: LispVal -> ThrowsError LispVal
 eval atom@(Atom _) = return atom
 eval vector@(Vector _) = return vector
-eval list@(List (Atom "quoted" : [x])) = (return . Atom) $ show x
+eval list@(List [Atom "quote", value]) = return value
 eval list@(List (Atom func : args)) = mapM eval args >>= apply func
 eval list@(List _) = return list
 eval dotted@(DottedList _ _) = return dotted
